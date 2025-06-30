@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DHANUSH | Visualizer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Montserrat:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="vizWrapper">
+    <canvas id="vizCanvas" width="1280" height="720"></canvas>
+    <div id="title">DHANUSH-MUSIC</div>
+  </div>
+  <div id="controls">
+    <select id="spectrumType">
+      <option value="circular">Circular Bars</option>
+      <option value="linear">Linear Bars</option>
+      <option value="waveform">Waveform</option>
+      <option value="radial">Radial Lines</option>
+      <option value="dot">Dot Orbit</option>
+      <option value="spiral">Spiral</option>
+      <option value="mirror">Mirror Bars</option>
+    </select>
+    <input type="file" id="audioFile" accept="audio/*">
+    <audio id="audio" controls></audio>
+    <button id="recordBtn" disabled>Start Recording</button>
+    <a id="downloadLink" class="hidden" download="visualizer.webm">Download</a>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
