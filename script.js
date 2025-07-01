@@ -1,4 +1,3 @@
-
 const canvas = document.getElementById('vizCanvas');
 const ctx = canvas.getContext('2d');
 const audio = document.getElementById('audio');
@@ -8,131 +7,63 @@ const downloadLink = document.getElementById('downloadLink');
 const spectrumType = document.getElementById('spectrumType');
 
 let analyser, dataArray, audioCtx, source;
-let angleShift = 0, drawLoop;
-let recorder, chunks = [];
-let spectrum = 'circular';
+let drawLoop, recorder, chunks = [];
+let isRecording = false;
 
-function resizeCanvas() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
+const stars = [];
+const STAR_COUNT = 120;
+let angleShift = 0;
+
+function initStars() {
+    stars.length = 0;
+    for (let i = 0; i < STAR_COUNT; i++) {
+        stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            baseR: Math.random() * 2.5 + 0.6,
+            speed: Math.random() * 0.3 + 0.1,
+            twinkle: Math.random() * Math.PI * 2
+        });
+    }
 }
-window.addEventListener('resize', resizeCanvas);
-window.addEventListener('DOMContentLoaded', resizeCanvas);
 
-spectrumType.onchange = () => {
-    spectrum = spectrumType.value;
-};
+function drawStars(audioEnergy) {
+    for (let star of stars) {
+        const twinkle = 0.5 + 0.5 * Math.sin(Date.now() * 0.002 + star.twinkle);
+        const dynamicSize = star.baseR * (1 + audioEnergy * 0.006);
 
-input.onchange = () => {
-    const file = input.files[0];
-    if (!file) return;
-    audio.src = URL.createObjectURL(file);
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    dataArray = new Uint8Array(analyser.frequencyBinCount);
-    source = audioCtx.createMediaElementSource(audio);
-    source.connect(analyser);
-    analyser.connect(audioCtx.destination);
-    recordBtn.disabled = false;
-    audio.play();
-    if (!drawLoop) draw();
-};
-
-function draw() {
-    drawLoop = requestAnimationFrame(draw);
-    if (!analyser) return;
-    analyser.getByteFrequencyData(dataArray);
-
-    const cx = canvas.width / 2, cy = canvas.height / 2;
-    const minDim = Math.min(canvas.width, canvas.height);
-    const radius = minDim * 0.145 + Math.sin(Date.now() / 400) * 4 * devicePixelRatio;
-    const energy = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-    // No glow
-    document.getElementById("vizWrapper").style.boxShadow = "none";
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Cinematic vignette
-    let grad = ctx.createRadialGradient(cx, cy, minDim * 0.2, cx, cy, minDim * 0.5);
-    grad.addColorStop(0, "rgba(0,0,0,0)");
-    grad.addColorStop(1, "rgba(0,0,0,0.18)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Subtle scanline effect
-    ctx.save();
-    ctx.globalAlpha = 0.07;
-    for (let y = 0; y < canvas.height; y += 6 * devicePixelRatio) {
-        ctx.fillStyle = "#0ff";
-        ctx.fillRect(0, y, canvas.width, 2 * devicePixelRatio);
-    }
-    ctx.restore();
-
-    switch (spectrum) {
-        case 'circular':
-            drawCircularBars(cx, cy, minDim, radius, energy);
-            break;
-        case 'linear':
-            drawLinearBars(cx, cy, minDim, energy);
-            break;
-        case 'waveform':
-            drawWaveform(cx, cy, minDim, energy);
-            break;
-        case 'radial':
-            drawRadialLines(cx, cy, minDim, radius, energy);
-            break;
-        case 'dot':
-            drawDotOrbit(cx, cy, minDim, radius, energy);
-            break;
-        case 'spiral':
-            drawSpiral(cx, cy, minDim, radius, energy);
-            break;
-        case 'mirror':
-            drawMirrorBars(cx, cy, minDim, energy);
-            break;
-    }
-
-    // Outer Ring (for most types)
-    if (['circular', 'radial', 'dot', 'spiral'].includes(spectrum)) {
         ctx.save();
-        ctx.translate(cx, cy);
         ctx.beginPath();
-        ctx.arc(0, 0, radius + 32 * devicePixelRatio, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255,215,0,0.22)";
-        ctx.lineWidth = 32 * devicePixelRatio + energy / 18;
-        ctx.shadowBlur = 0;
-        ctx.stroke();
+        ctx.globalAlpha = twinkle;
+        ctx.arc(star.x, star.y, dynamicSize, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.shadowColor = "#fff";
+        ctx.shadowBlur = 12 + audioEnergy * 0.2;
+        ctx.fill();
         ctx.restore();
+
+        star.x += Math.sin(star.twinkle + Date.now() * 0.001) * 0.2;
+        star.y += star.speed * (1 + audioEnergy * 0.005);
+
+        if (star.y > canvas.height) star.y = 0;
+        if (star.x < 0) star.x = canvas.width;
+        if (star.x > canvas.width) star.x = 0;
     }
-
-    // Logo Text
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(-angleShift);
-    ctx.font = `bold ${Math.round(minDim * 0.045)}px Orbitron, Montserrat, sans-serif`;
-    ctx.fillStyle = "#ffd700";
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.textAlign = "center";
-    ctx.fillText("DHANUSH", 0, minDim * 0.03);
-    ctx.restore();
-
-    angleShift += 0.006 + energy / 60000;
 }
 
-// --- Spectrum Drawing Functions ---
+function getBassEnergy(dataArray) {
+    const bassBins = Math.floor(dataArray.length * 0.1);
+    return dataArray.slice(0, bassBins).reduce((a, b) => a + b, 0) / bassBins;
+}
 
-function drawCircularBars(cx, cy, minDim, radius, energy) {
-    const bars = Math.max(120, Math.floor(minDim / 10));
+// === Visualizer Modes ===
+
+function drawCircularBars(cx, cy, radius, bars, dataArray, audioEnergy) {
+    angleShift += 0.005;
     for (let i = 0; i < bars; i++) {
         const angle = (i / bars) * Math.PI * 2 + angleShift;
         const val = dataArray[i % dataArray.length];
-        const len = radius + (val / 255) * (minDim * 0.13);
-        const barHue = (angle * 180 / Math.PI + Date.now() / 18) % 360;
+        const len = radius + (val / 255) * 90;
 
         ctx.save();
         ctx.translate(cx, cy);
@@ -140,55 +71,57 @@ function drawCircularBars(cx, cy, minDim, radius, energy) {
         ctx.beginPath();
         ctx.moveTo(radius, 0);
         ctx.lineTo(len, 0);
-        ctx.strokeStyle = `hsl(${barHue}, 100%, ${68 + val / 7}%)`;
-        ctx.lineWidth = 5.5 * devicePixelRatio + val / 90;
-        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2 + val / 100;
+        ctx.shadowBlur = 10 + val / 24;
+        ctx.shadowColor = "#fff";
+        ctx.globalAlpha = 0.8;
         ctx.stroke();
         ctx.restore();
     }
 }
 
-function drawLinearBars(cx, cy, minDim, energy) {
-    const bars = Math.max(120, Math.floor(minDim / 10));
-    const barWidth = canvas.width / bars;
+function drawLinearBars(cx, cy, width, height, bars, dataArray) {
+    const barWidth = width / bars;
     for (let i = 0; i < bars; i++) {
         const val = dataArray[i % dataArray.length];
-        const barHeight = (val / 255) * (canvas.height * 0.6);
-        const barHue = (i * 360 / bars + Date.now() / 18) % 360;
+        const barHeight = (val / 255) * height;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(i * barWidth, canvas.height - barHeight, barWidth * 0.7, barHeight);
-        ctx.fillStyle = `hsl(${barHue}, 100%, ${68 + val / 7}%)`;
-        ctx.shadowBlur = 0;
+        ctx.rect(cx - width / 2 + i * barWidth, cy + height / 2 - barHeight, barWidth * 0.8, barHeight);
+        ctx.fillStyle = "#fff";
+        ctx.globalAlpha = 0.8;
+        ctx.shadowBlur = 10 + val / 24;
+        ctx.shadowColor = "#fff";
         ctx.fill();
         ctx.restore();
     }
 }
 
-function drawWaveform(cx, cy, minDim, energy) {
-    analyser.getByteTimeDomainData(dataArray);
+function drawWaveform(cx, cy, width, height, dataArray) {
     ctx.save();
     ctx.beginPath();
     for (let i = 0; i < dataArray.length; i++) {
-        const x = (i / dataArray.length) * canvas.width;
-        const y = cy + ((dataArray[i] - 128) / 128) * (canvas.height * 0.32);
+        const x = cx - width / 2 + (i / dataArray.length) * width;
+        const y = cy + ((dataArray[i] - 128) / 128) * (height / 2);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = `hsl(${(Date.now() / 8) % 360}, 100%, 80%)`;
-    ctx.lineWidth = 8 * devicePixelRatio;
-    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#fff";
+    ctx.globalAlpha = 0.9;
     ctx.stroke();
     ctx.restore();
 }
 
-function drawRadialLines(cx, cy, minDim, radius, energy) {
-    const lines = Math.max(120, Math.floor(minDim / 10));
-    for (let i = 0; i < lines; i++) {
-        const angle = (i / lines) * Math.PI * 2 + angleShift;
+function drawRadialLines(cx, cy, radius, bars, dataArray) {
+    angleShift += 0.005;
+    for (let i = 0; i < bars; i++) {
+        const angle = (i / bars) * Math.PI * 2 + angleShift;
         const val = dataArray[i % dataArray.length];
-        const len = radius + (val / 255) * (minDim * 0.28);
-        const barHue = (angle * 180 / Math.PI + Date.now() / 18) % 360;
+        const len = radius + (val / 255) * 120;
 
         ctx.save();
         ctx.translate(cx, cy);
@@ -196,85 +129,190 @@ function drawRadialLines(cx, cy, minDim, radius, energy) {
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(len, 0);
-        ctx.strokeStyle = `hsl(${barHue}, 100%, ${60 + val / 7}%)`;
-        ctx.lineWidth = 4.5 * devicePixelRatio + val / 120;
-        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1.5 + val / 180;
+        ctx.shadowBlur = 8 + val / 32;
+        ctx.shadowColor = "#fff";
+        ctx.globalAlpha = 0.7;
         ctx.stroke();
         ctx.restore();
     }
 }
 
-function drawDotOrbit(cx, cy, minDim, radius, energy) {
-    const dots = Math.max(90, Math.floor(minDim / 16));
-    for (let i = 0; i < dots; i++) {
-        const angle = (i / dots) * Math.PI * 2 + angleShift * 1.5;
+function drawDotOrbit(cx, cy, radius, bars, dataArray) {
+    angleShift += 0.005;
+    for (let i = 0; i < bars; i++) {
+        const angle = (i / bars) * Math.PI * 2 + angleShift;
         const val = dataArray[i % dataArray.length];
-        const len = radius + (val / 255) * (minDim * 0.18);
-        const dotHue = (angle * 180 / Math.PI + Date.now() / 12) % 360;
+        const len = radius + (val / 255) * 80;
         ctx.save();
         ctx.beginPath();
-        ctx.arc(cx + Math.cos(angle) * len, cy + Math.sin(angle) * len, 16 * devicePixelRatio + val / 18, 0, Math.PI * 2);
-        ctx.fillStyle = `hsl(${dotHue}, 100%, ${75 + val / 7}%)`;
-        ctx.shadowBlur = 0;
+        ctx.arc(cx + Math.cos(angle) * len, cy + Math.sin(angle) * len, 4 + val / 90, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.globalAlpha = 0.85;
+        ctx.shadowBlur = 8 + val / 24;
+        ctx.shadowColor = "#fff";
         ctx.fill();
         ctx.restore();
     }
 }
 
-function drawSpiral(cx, cy, minDim, radius, energy) {
-    const points = Math.max(200, Math.floor(minDim / 4));
+function drawSpiral(cx, cy, radius, bars, dataArray) {
+    angleShift += 0.005;
     ctx.save();
     ctx.beginPath();
-    for (let i = 0; i < points; i++) {
-        const t = i / points * 6 * Math.PI + angleShift * 2;
+    for (let i = 0; i < bars; i++) {
+        const angle = (i / bars) * Math.PI * 6 + angleShift;
         const val = dataArray[i % dataArray.length];
-        const r = radius + (val / 255) * (minDim * 0.28) + i * (minDim * 0.0015);
-        const x = cx + Math.cos(t) * r;
-        const y = cy + Math.sin(t) * r;
+        const len = radius + (val / 255) * 60 + i * 2;
+        const x = cx + Math.cos(angle) * len;
+        const y = cy + Math.sin(angle) * len;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = `hsl(${(Date.now() / 4) % 360}, 100%, 85%)`;
-    ctx.lineWidth = 12 * devicePixelRatio;
-    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 16;
+    ctx.shadowColor = "#fff";
+    ctx.globalAlpha = 0.8;
     ctx.stroke();
     ctx.restore();
 }
 
-function drawMirrorBars(cx, cy, minDim, energy) {
-    const bars = Math.max(120, Math.floor(minDim / 10));
-    const barWidth = canvas.width / bars;
+function drawMirrorBars(cx, cy, width, height, bars, dataArray) {
+    const barWidth = width / bars;
     for (let i = 0; i < bars; i++) {
         const val = dataArray[i % dataArray.length];
-        const barHeight = (val / 255) * (canvas.height * 0.32);
-        const barHue = (i * 360 / bars + Date.now() / 18) % 360;
-        // Top
+        const barHeight = (val / 255) * (height / 2);
         ctx.save();
         ctx.beginPath();
-        ctx.rect(i * barWidth, cy - barHeight, barWidth * 0.7, barHeight);
-        ctx.fillStyle = `hsl(${barHue}, 100%, ${68 + val / 7}%)`;
-        ctx.shadowBlur = 0;
-        ctx.fill();
-        ctx.restore();
-        // Bottom (mirror)
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(i * barWidth, cy, barWidth * 0.7, barHeight);
-        ctx.fillStyle = `hsl(${(barHue + 180) % 360}, 100%, ${60 + val / 9}%)`;
-        ctx.globalAlpha = 0.7;
-        ctx.shadowBlur = 0;
+        ctx.rect(cx - width / 2 + i * barWidth, cy - barHeight, barWidth * 0.8, barHeight);
+        ctx.rect(cx - width / 2 + i * barWidth, cy, barWidth * 0.8, barHeight);
+        ctx.fillStyle = "#fff";
+        ctx.globalAlpha = 0.8;
+        ctx.shadowBlur = 10 + val / 24;
+        ctx.shadowColor = "#fff";
         ctx.fill();
         ctx.restore();
     }
 }
 
-// --- Recording ---
-recordBtn.onclick = () => {
-    if (recorder && recorder.state === "recording") {
-        recorder.stop();
-        recordBtn.textContent = "Start Recording";
-        return;
+function draw() {
+    drawLoop = requestAnimationFrame(draw);
+    if (!analyser) return;
+
+    if (spectrumType.value === "waveform") {
+        analyser.getByteTimeDomainData(dataArray);
+    } else {
+        analyser.getByteFrequencyData(dataArray);
     }
+    const audioEnergy = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    const bassEnergy = getBassEnergy(dataArray);
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const radius = 140;
+    const bars = 120;
+
+    // Dynamic background
+    const bgGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    bgGradient.addColorStop(0, `hsl(${audioEnergy % 360}, 60%, 10%)`);
+    bgGradient.addColorStop(1, `hsl(${(audioEnergy + 120) % 360}, 70%, 8%)`);
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawStars(audioEnergy);
+
+    switch (spectrumType.value) {
+        case "circular":
+            drawCircularBars(cx, cy, radius, bars, dataArray, audioEnergy);
+            break;
+        case "linear":
+            drawLinearBars(cx, cy, 900, 320, bars, dataArray);
+            break;
+        case "waveform":
+            drawWaveform(cx, cy, 1100, 320, dataArray);
+            break;
+        case "radial":
+            drawRadialLines(cx, cy, radius, bars, dataArray);
+            break;
+        case "dot":
+            drawDotOrbit(cx, cy, radius, bars, dataArray);
+            break;
+        case "spiral":
+            drawSpiral(cx, cy, radius, bars, dataArray);
+            break;
+        case "mirror":
+            drawMirrorBars(cx, cy, 900, 320, bars, dataArray);
+            break;
+        default:
+            drawCircularBars(cx, cy, radius, bars, dataArray, audioEnergy);
+    }
+
+    // Inner circle (for circular/radial/dot/spiral)
+    if (
+        ["circular", "radial", "dot", "spiral"].includes(spectrumType.value)
+    ) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius - 25, 0, Math.PI * 2);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#fff";
+        ctx.globalAlpha = 0.6;
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Center Text
+    ctx.save();
+    ctx.translate(cx, cy);
+    const fontSize = 24 + bassEnergy * 0.08;
+    ctx.font = `bold ${fontSize}px Orbitron, Arial`;
+    ctx.fillStyle = "#fff";
+    ctx.shadowColor = "#fff";
+    ctx.shadowBlur = 24 + bassEnergy * 0.15;
+    ctx.textAlign = "center";
+    ctx.fillText("DHANUSH", 0, 10);
+    ctx.restore();
+}
+
+input.onchange = () => {
+    const file = input.files[0];
+    if (!file) return;
+    audio.src = URL.createObjectURL(file);
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    source = audioCtx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    recordBtn.disabled = false;
+    downloadLink.classList.add("hidden");
+    audio.currentTime = 0;
+    audio.pause();
+
+    if (!drawLoop) draw();
+};
+
+recordBtn.onclick = () => {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        if (!audio.src) return;
+        audio.currentTime = 0;
+        audio.play();
+        startRecording();
+    }
+};
+
+function startRecording() {
     chunks = [];
     const stream = canvas.captureStream(60);
     const audioStream = audioCtx.createMediaStreamDestination();
@@ -283,13 +321,50 @@ recordBtn.onclick = () => {
         ...stream.getVideoTracks(),
         ...audioStream.stream.getAudioTracks()
     ]);
+
     recorder = new MediaRecorder(combined, { mimeType: "video/webm" });
-    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.ondataavailable = e => e.data.size > 0 && chunks.push(e.data);
     recorder.onstop = () => {
         const blob = new Blob(chunks, { type: "video/webm" });
-        downloadLink.href = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        downloadLink.href = url;
+        downloadLink.textContent = "Download Recording";
         downloadLink.classList.remove("hidden");
+        downloadLink.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
+
     recorder.start();
+    isRecording = true;
     recordBtn.textContent = "Stop Recording";
-};
+    audio.onended = () => isRecording && stopRecording();
+}
+
+function stopRecording() {
+    if (recorder && recorder.state === "recording") recorder.stop();
+    isRecording = false;
+    recordBtn.textContent = "Start Recording";
+    audio.onended = null;
+}
+
+function resizeCanvasTo16by9() {
+    const wrapper = document.getElementById('vizWrapper');
+    const rect = wrapper.getBoundingClientRect();
+    canvas.width = 1920;
+    canvas.height = 1080;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    initStars();
+}
+
+window.addEventListener('resize', resizeCanvasTo16by9);
+resizeCanvasTo16by9();
+
+spectrumType.addEventListener('change', () => {
+    // Redraw immediately on mode change
+    if (drawLoop) {
+        cancelAnimationFrame(drawLoop);
+        drawLoop = null;
+    }
+    draw();
+});
